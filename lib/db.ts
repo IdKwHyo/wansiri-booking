@@ -1,3 +1,9 @@
-import {env} from 'cloudflare:workers';
-export function db():D1Database{if(!env.DB)throw new Error('Database unavailable');return env.DB}
-export function runtime(){return env as unknown as Record<string,string|undefined>}
+import 'server-only';
+import {createDatabase} from './postgres';
+let connection: ReturnType<typeof createDatabase> | undefined;
+export function db() {
+  if (!process.env.DATABASE_URL) throw new Error('Database unavailable');
+  connection ??= createDatabase(process.env.DATABASE_URL);
+  return connection.database;
+}
+export function runtime() { return process.env; }

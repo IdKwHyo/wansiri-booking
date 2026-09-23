@@ -1,106 +1,71 @@
-# Clinic / Patient booking
+# Wansiri patient booking
 
-A persistent clinic appointment app with a Tiffany-blue interface, patient directory, visit history, controlled natural-language search, and an optional hosted assistant.
+A Tiffany-blue clinic booking application with persistent patient records, staff sign-in, visit history, and an optional Groq search assistant.
+
+**Deploying on Vercel? Start with [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).** It walks through creating Supabase, initializing the database, adding your first administrator, and configuring Vercel.
 
 ## Stack
 
-- React 19 + Vinext, TypeScript; Shadcn/Radix UI primitives
-- Cloudflare Workers API and D1 (SQLite), generated Drizzle migrations
-- Zod request validation; prepared SQL; transactional writes
-- Hosted Groq GPT-OSS 20B, or a configured OpenAI-compatible model endpoint
+- Next.js 16 App Router, React 19, TypeScript
+- Supabase Postgres with prepared queries and atomic transactions
+- Supabase Auth with verified server sessions and a private staff allowlist
+- Zod validation, Shadcn/Radix UI components
+- Optional hosted Groq `openai/gpt-oss-20b`; no local model download
 
-No model is needed for normal booking. The hosted version uses Quick search by default. Flexible model interpretation requires a server-side provider key. No local model runs or model download is needed. No API keys are included.
+This branch replaces the earlier Vinext / Cloudflare-specific deployment. It uses `next build`, which produces Vercel's required `.next/routes-manifest.json`.
 
-## Functional scope
+## Features
 
-- Clinic-issued HN stored as a string, normalized to uppercase; leading zeros preserved. HN lookup fills existing details automatically.
-- New booking shows the essential fields first; arrival/status/doctor details expand when needed.
-- Successful booking and edit paths use two D1 round trips. The confirmed server record appears immediately, before background schedule refresh.
-- A patient can have many appointments. Booking never silently overwrites their identity.
-- Booking time is the appointment time. Creation timestamps are stored separately.
-- Arrival time, service text, follow-up flag, case tags, doctor-seen flag, status, and remarks belong to the visit.
-- Half-hour slots, clinic hours and per-slot capacity configurable. Default: 10:00–16:00, one patient per slot.
-- Transactional SQL guards enforce capacity and a partial unique index prevents duplicate active patient/time bookings.
-- Cancelled visits stay in history; restoring rechecks availability.
-- Optimistic version checks prevent lost updates. Request IDs protect creation retries.
-- Append-only events record actor and changes. `/api/v1/events` supplies a cursor for future automation consumers.
-- The table refreshes every 15 seconds and after changes. This is polling, not WebSocket push.
-- Records survive refreshes and deployment updates. No patient data is kept in browser storage.
+- Clinic-issued HN lookup and patient identity reuse; leading zeros preserved.
+- Booking time, arrival time, HN, name, DOB, sex, service/follow-up, doctor-seen, status and remarks.
+- Half-hour slots with configurable clinic hours and capacity.
+- Booked → waiting → diagnosed → ready to go home; cancellation and no-show history.
+- Atomic patient/booking/audit writes, concurrent capacity enforcement, duplicate-retry protection, and version checks against stale edits.
+- Search, filters, patient visit history and an event feed for future integrations.
+- Invite-only staff access. Staff manage patients and bookings; admins also manage clinic settings and fictional example loading.
+- Staff account page, password changes and sign-out. Account creation/recovery is administrator-managed in Supabase.
+- Read-only AI search maps language into validated filters. Booking does not require AI.
+
+The schedule polls every 15 seconds. Successful saves immediately display the server-confirmed record. No patient data is persisted in browser storage.
 
 ## Run
 
-Requires Node 22.13+ (Node 24 recommended) and pnpm. Preserve `pnpm-lock.yaml`.
-
-```sh
+```bash
 pnpm install --frozen-lockfile
-pnpm build
-```
-
-Apply local migrations, once and in order:
-
-```sh
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_marvelous_korg.sql
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0001_booking_constraints.sql
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0002_rich_siren.sql
+cp .env.example .env.local
+# Set the Supabase values described in docs/DEPLOYMENT.md.
+pnpm db:migrate # once, if not already initialized in Supabase SQL Editor
 pnpm dev
 ```
 
-The hosted app relies on the Sites gateway to authenticate and restrict access. All API routes require `oai-authenticated-user-id` and `oai-authenticated-user-email`. Source checkouts using the portable profile have the starter's development sign-in; managed previews do not simulate auth. For independent hosting, replace this boundary with verified sessions from your identity provider. Never expose an origin that trusts arbitrary client-provided identity headers. `.openai/hosting.json` preserves this Site's identity; remove its `project_id` only when intentionally creating a separate new Site.
+Node 24 recommended. Keep keys and database credentials out of GitHub. Never prefix server secrets with `NEXT_PUBLIC_`.
 
-## Tests
+## Check
 
-```sh
-pnpm exec tsc --noEmit
+```bash
+pnpm typecheck
 node scripts/test-assistant.mjs
-node tests/backend.test.mjs
+pnpm build
+# Local disposable Postgres only (setup in deployment guide):
+TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:55439/postgres pnpm test
 ```
 
-Backend tests use the actual route handlers and Miniflare D1 with the production migrations and a synthetic test identity. They cover anonymous and cross-origin rejection, persistence/read-back, conflicts and simultaneous creation, rollback, HN identity, retries, cancelled-slot restoration, version conflicts, audit events, and parameterized search. They do not contact a real clinic or a model endpoint.
-
-## Model integration
-
-**Recommended hosted setup: Groq.** Create a key at https://console.groq.com/keys, then set it as the server-side secret `GROQ_API_KEY`. The default model is `openai/gpt-oss-20b`; optionally set `GROQ_MODEL` to another compatible model. The app automatically switches its default search to the cloud assistant when configured. Never put a key in frontend code, a public repository, or browser storage.
-
-For local development, put server variables in an ignored `.dev.vars` file; see `.env.example`. For the hosted Site, configure the runtime secret and redeploy to apply it.
-
-```text
-GROQ_API_KEY=your-secret-key
-GROQ_MODEL=openai/gpt-oss-20b
-```
-
-Groq provides a rate-limited free plan. Current limits and paid pricing are in its official model and rate-limit documentation; account limits govern actual availability. This app neither signs up for paid service nor upgrades a plan automatically. A 429 response shows a usage-limit message, with Quick search/manual filters still available. No API key was supplied during this build, so live model inference has not been exercised.
-
-The server sends only the search text, date context and filter schema to the model, never patient result rows. Search text may itself identify a patient; use synthetic records while evaluating and configure provider data controls before sending clinic information. Groq offers a Zero Data Retention setting. Model filters are validated and shown before results; schema validity does not establish correct interpretation.
-
-For another provider, set `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, and `LLM_PROTOCOL=openai`. These override the Groq shortcut. Ollama native protocol remains supported for existing custom server integrations.
-
-The assistant is search-only in this release. Booking changes use the explicit UI. Messages/reminders, external hospital integration, clinical diagnosis, and automated discharge are not connected.
+Tests exercise Postgres booking rules and route behavior using synthetic data and a test identity. Hosted Supabase login and live Groq inference must be checked after your project credentials are configured; they are not claimed as verified here.
 
 ## Code map
 
-- `app/booking-app.tsx`: booking UI, filters, dialogs and patient history
-- `app/globals.css`: Tiffany theme and responsive styling
-- `app/api/v1/[...path]/route.ts`: HTTP/authentication boundary
-- `lib/contracts.ts`: shared validation and filter contract
-- `lib/service.ts`, `lib/guards.ts`: booking rules, transactional storage and prepared queries
-- `lib/assistant.ts`: conservative Quick search + server model adapter
-- `db/schema.ts`, `drizzle/`: schema and append-only migration history
-- `docs/API.md`: integration endpoints and event contract
+- `app/booking-app.tsx`: booking interface
+- `app/login/`, `app/account/`, `lib/auth.ts`, `proxy.ts`: staff sessions
+- `app/api/v1/[...path]/route.ts`: API/authentication/role boundary
+- `lib/contracts.ts`: input validation and shared types
+- `lib/service.ts`, `lib/guards.ts`: booking rules and audit events
+- `lib/postgres.ts`: transaction and prepared-query adapter
+- `supabase/migrations/001_clinic.sql`: fresh Postgres schema
+- `lib/assistant.ts`: hosted model adapter and deterministic Quick search
+- `docs/API.md`: request and event contracts
 
-## Deployment boundary
+## Scope
 
-The current private Site has one shared clinic dataset for its allowed users. Staff-specific roles and additional clinic tenants are not implemented. Keep the Site private; all allowed users currently have the same permissions. Configure organizational access, retention/backups, and identity-provider requirements before using real patient data. No assertion of hospital production approval is made.
+One shared clinic dataset; no public self-registration or multiple-clinic tenancy. This creates a new database and does not import records from the earlier demo. No reminder delivery, hospital-system integration, automated discharge, or clinical diagnosis is connected. Staff access and database protections are implemented; real-patient deployment still needs the clinic's operational review and backup/data-handling configuration.
 
-## Primary implementation references
-
-- https://console.groq.com/docs/model/openai/gpt-oss-20b
-- https://console.groq.com/docs/rate-limits
-- https://console.groq.com/docs/structured-outputs
-- https://console.groq.com/docs/your-data
-- https://docs.ollama.com/capabilities/structured-outputs
-- https://docs.ollama.com/api/openai-compatibility
-- https://developers.cloudflare.com/d1/worker-api/d1-database/
-- https://orm.drizzle.team/docs/get-started/d1-new
-- https://zod.dev/
-
-Third-party components retain their upstream licenses. Use the supplied lockfile rather than upgrading packages opportunistically.
+Third-party components retain their upstream licenses.

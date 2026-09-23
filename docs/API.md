@@ -1,6 +1,6 @@
 # Clinic API v1
 
-Base: `/api/v1`. Responses are JSON and `Cache-Control: no-store`. Authentication is required on every endpoint. No patient data is sent to third-party model services unless the operator configures the server model; even then only the query/schema is sent, not database rows.
+Base: `/api/v1`. Responses are JSON and `Cache-Control: no-store`. Every endpoint verifies a Supabase session and an active entry in `clinic.staff`. Requests cannot authenticate through the old ChatGPT identity headers. `settings` writes and `examples` require the admin role. No patient data is sent to third-party model services unless the operator configures the server model; even then only the query/schema is sent, not database rows.
 
 | Method | Route | Purpose |
 |---|---|---|
@@ -48,13 +48,13 @@ Quick search is deterministic and intentionally limited; unknown conditions requ
 ## Errors / concurrency
 
 - 400: invalid fields, status contradiction or invalid interpretation
-- 401: missing authenticated identity
-- 403: cross-origin mutation
+- 401: missing/expired session or unapproved/revoked staff account
+- 403: cross-origin mutation or insufficient staff role
 - 404: unknown record
 - 409: capacity, HN collision, stale version, incompatible settings, or conflicting request retry
 - 503: database or model unavailable
 
-On 409, reload the current record; never blindly resubmit a stale update. New booking plus patient insert and event are atomic. Transactional SQL guards cover concurrent requests. Normal creates and updates batch their preflight reads and committed read-back into two D1 round trips. Parameterized SQL escapes wildcard search characters so user input is literal text.
+On 409, reload the current record; never blindly resubmit a stale update. New booking plus patient insert and event are atomic. Transactional SQL guards cover concurrent requests. Prepared queries execute in Postgres transactions. Writes acquire a clinic-wide transaction advisory lock before checking capacity and applying mutations. Parameterized SQL escapes wildcard search characters so user input is literal text.
 
 ## Future automation
 
