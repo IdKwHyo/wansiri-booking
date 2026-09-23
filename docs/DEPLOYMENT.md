@@ -119,3 +119,17 @@ Primary references:
 - https://supabase.com/docs/guides/auth/passwords
 - https://supabase.com/docs/guides/database/postgres-js
 - https://supabase.com/docs/guides/database/connecting-to-postgres
+
+### Database certificate verification
+
+The app and migration script bundle the public Supabase Root 2021 CA in
+`supabase/database-tls.mjs`. Supabase pooler and direct database connections trust
+this CA alongside Node's public roots, with certificate and hostname verification
+enabled. No additional Vercel environment variable or certificate upload is needed.
+Other remote database hosts use Node's default trust store. Local test databases
+retain their existing non-TLS connection.
+
+If Supabase rotates its CA, replace the bundled public certificate with the download
+from Database Settings → SSL Configuration and redeploy. The current certificate
+expires on 26 April 2031. Never disable certificate verification to work around a
+trust error.

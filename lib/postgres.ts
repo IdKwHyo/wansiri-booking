@@ -1,4 +1,5 @@
 import postgres from 'postgres';
+import {databaseTls} from '../supabase/database-tls.mjs';
 import type {Database, Statement, QueryResult} from './database';
 
 // Parameter markers are translated, never values. Quoted SQL text is left intact.
@@ -11,7 +12,7 @@ export function parameterize(text: string) {
 export function createDatabase(url: string) {
   const sql = postgres(url, {
     prepare: false, max: 3, idle_timeout: 20, connect_timeout: 10,
-    ssl: ['localhost','127.0.0.1'].includes(new URL(url).hostname) ? false : {rejectUnauthorized:true},
+    ssl: databaseTls(url),
     types: {bigint: {to: 20, from: [20], serialize: String, parse: Number}},
   });
   class Prepared implements Statement {

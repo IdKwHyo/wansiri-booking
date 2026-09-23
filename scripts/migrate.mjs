@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises';
 import postgres from 'postgres';
+import {databaseTls} from '../supabase/database-tls.mjs';
 if (!process.env.DATABASE_URL) throw new Error('Set DATABASE_URL in .env.local first.');
-const sql = postgres(process.env.DATABASE_URL, {prepare:false, max:1, ssl:['localhost','127.0.0.1'].includes(new URL(process.env.DATABASE_URL).hostname) ? false : {rejectUnauthorized:true}});
+const sql = postgres(process.env.DATABASE_URL, {prepare:false, max:1, ssl:databaseTls(process.env.DATABASE_URL)});
 try {
   await sql.begin(async tx => {
     await tx`SELECT pg_advisory_xact_lock(504821)`;
